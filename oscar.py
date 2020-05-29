@@ -29,7 +29,7 @@ def maxSpan(V1,V2):
 				vec = np.vstack((V1[i]/np.linalg.norm(V1[i]),V2[j]/np.linalg.norm(V2[j])))	
 	return V1[i]/np.linalg.norm(V1[i]),V2[j]/np.linalg.norm(V2[j])
 
-a = np.asmatrix(np.loadtxt('he-she.txt')); b = np.asmatrix(np.loadtxt('occGloveDir.txt')); 
+a = np.asmatrix(np.loadtxt('Subspace_Vectors/he-she.txt')); b = np.asmatrix(np.loadtxt('Subspace_Vectors/occGloveDir.txt')); 
 
 v1, v2 = maxSpan(a,b) 
 v1 = np.asarray(v1).reshape(-1)
