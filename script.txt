@@ -1,4 +1,3 @@
-rsync -P -r ./* tli@shell:~/redfish/transformer_for_nli
 
 python3 -u -m preprocess.preprocess
 
