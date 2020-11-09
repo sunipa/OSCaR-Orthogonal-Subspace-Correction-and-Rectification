@@ -12,6 +12,7 @@ from torch import cuda
 from util.holder import *
 from util.util import *
 from util.data import *
+from modules.multiclass_loss import *
 from modules.optimizer import *
 from modules.transformer_for_nli import *
 
@@ -56,6 +57,40 @@ parser.add_argument('--freeze_transformer', help="Whether to freeze transformer 
 parser.add_argument('--bias_v1', help="Path to the bias direction1 hdf5", default="")
 parser.add_argument('--bias_v2', help="Path to the bias direction2 hdf5", default="")
 parser.add_argument('--bias_proj', help="Path to the bias projection hdf5", default="")
+parser.add_argument('--bias_update_every', help="Number of gradient updates every bias update happens between, -1: static (update only once", type=int, default=-1)
+
+
+def complete_opt(opt):
+	if 'base' in opt.transformer_type:
+		opt.hidden_size = 768
+	elif 'large' in opt.transformer_type:
+		opt.hidden_size = 1024
+	#
+	if hasattr(opt, 'train_data'): 
+		opt.train_data = opt.dir + opt.train_data
+	if hasattr(opt, 'val_data'):
+		opt.val_data = opt.dir + opt.val_data
+	if hasattr(opt, 'train_res'):
+		opt.train_res = '' if opt.train_res == ''  else ','.join([opt.dir + path for path in opt.train_res.split(',')])
+	if hasattr(opt, 'val_res'):
+		opt.val_res = '' if opt.val_res == ''  else ','.join([opt.dir + path for path in opt.val_res.split(',')])
+
+	if hasattr(opt, 'label_dict'):
+		opt.label_dict = opt.dir + opt.label_dict
+		opt.labels, opt.label_map_inv = load_label_dict(opt.label_dict)
+
+	# if opt is loaded as argparse.Namespace from json, it would lose track of data type, enforce types here
+	opt.label_map_inv = {int(k): v for k, v in opt.label_map_inv.items()}
+	opt.num_label = len(opt.labels)
+
+	# default on transformers pretrained config
+	config = AutoConfig.from_pretrained(opt.transformer_type)
+	_opt = TransformerForNLIConfig()
+	_opt.__dict__.update(config.__dict__)
+	_opt.__dict__.update(opt.__dict__)
+	_opt.architectures = 'TransformerForNLI'
+	_opt.model_type = 'transformerfornli'
+	return _opt
 
 # train batch by batch, accumulate batches until the size reaches acc_batch_size
 def train_epoch(opt, shared, m, optim, data, sub_idx):
@@ -75,9 +110,12 @@ def train_epoch(opt, shared, m, optim, data, sub_idx):
 	for i in range(data_size):
 		all_data.append((data, batch_order[i]))
 
+	loss = MulticlassLoss(opt)
+
 	m.train(True)
 	optim.begin_pass(shared)
 	m.begin_pass(shared)
+	loss.begin_pass(shared)
 	for i in range(data_size):
 
 		cur_data, cur_idx = all_data[i]
@@ -91,7 +129,8 @@ def train_epoch(opt, shared, m, optim, data, sub_idx):
 		update_shared_context(shared, batch_context)
 
 		# forward
-		pred, batch_loss = m(p_toks, h_toks, label)
+		pred = m(p_toks, h_toks)
+		batch_loss = loss(pred, label)
 
 		# stats
 		train_loss += float(batch_loss.item())
@@ -121,14 +160,15 @@ def train_epoch(opt, shared, m, optim, data, sub_idx):
 				stats = '{0}, Batch {1:.1f}k '.format(shared.epoch+1, float(i+1)/1000)
 				stats += 'Grad {0:.1f}/{1:.1f} '.format(optim.min_grad_norm2, optim.max_grad_norm2)
 				stats += 'Loss {0:.4f} '.format(train_loss / num_ex)
-				stats += m.loss.print_cur_stats()
+				stats += loss.print_cur_stats()
 				stats += ' Time {0:.1f}'.format(time_taken)
 				print(stats)
 
+	loss.end_pass()
 	optim.end_pass()
 	m.end_pass()
 
-	perf, extra_perf = m.loss.get_epoch_metric()
+	perf, extra_perf = loss.get_epoch_metric()
 
 	return perf, extra_perf
 
@@ -206,7 +246,10 @@ def validate(opt, shared, m, val_data, val_idx):
 	#data_size = val_idx.size()[0]
 	print('validating on the {0} batches...'.format(data_size))
 
+	loss = MulticlassLoss(opt)
+
 	m.begin_pass(shared)
+	loss.begin_pass(shared)
 	for i in range(data_size):
 		cur_data, cur_idx = all_val[i]
 		(p_toks, h_toks, label), batch_context = cur_data[cur_idx]
@@ -220,14 +263,16 @@ def validate(opt, shared, m, val_data, val_idx):
 
 		with torch.no_grad():
 			# forward
-			pred, batch_loss = m(p_toks, h_toks, label)
+			pred = m(p_toks, h_toks)
+		batch_loss = loss(pred, label)
 
 		# stats
 		val_loss += float(batch_loss.item())
 		num_ex += shared.batch_l
 		num_batch += 1
 
-	perf, extra_perf = m.loss.get_epoch_metric()	# we only use the first loss's corresponding metric to select models
+	perf, extra_perf = loss.get_epoch_metric()	# we only use the first loss's corresponding metric to select models
+	loss.end_pass()
 	m.end_pass()
 
 	return perf, extra_perf
@@ -244,15 +289,15 @@ def main(args):
 		torch.cuda.set_device(opt.gpuid)
 		torch.cuda.manual_seed_all(opt.seed)
 
-	print(opt)
-
 	# initializing from pretrained
 	if opt.load_file != '':		
-		m = TransformerForNLI.from_pretrained(opt.load_file, overwrite_opt = opt)
+		m = TransformerForNLI.from_pretrained(opt.load_file, global_opt = opt)
 
 	else:
 		m = TransformerForNLI(opt)
 		m.init_weight()
+
+	print(opt)
 	
 	if opt.gpuid != -1:
 		m.distribute()	# distribute to multigpu

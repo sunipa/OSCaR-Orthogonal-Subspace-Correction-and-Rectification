@@ -1,3 +1,4 @@
+rsync -P -r ./* tli@shell:~/redfish/transformer_for_nli
 
 python3 -u -m preprocess.preprocess
 
@@ -10,9 +11,9 @@ python3 -u demo.py --gpuid 0 --load_file tli8hf/robertabase_snli
 
 python3 -u predict.py --gpuid 0 --load_file ./models/robertabase_snli_seed1
 
-for SEED in 1 2 3; do
-for DATA in entail contradict gender_occupation; do
-    python3 -u predict.py --gpuid 1 --dir ./data/oscar/ --data ${DATA}.hdf5 --res ${DATA}.x_pair.txt,${DATA}.sent1.txt,${DATA}.sent2.txt --log unlabeled_pred \
+for SEED in 1; do
+for DATA in entail; do
+    python3 -u predict.py --gpuid 1 --dir ./data/oscar/ --data ${DATA}.hdf5 --res ${DATA}.x_pair.txt,${DATA}.sent1.txt,${DATA}.sent2.txt --ref_log unlabeled_pred \
         --load_file ./models/robertabase_snli_seed${SEED} --pred_output ./models/${DATA}.robertabase_snli_seed${SEED}
 done
 done
@@ -31,17 +32,12 @@ for DATA in entail contradict gender_occupation; do
     python3 -u -m preprocess.preprocess_oscar --data $DATA.txt --output $DATA
 done
 
-for DATA in entail contradict gender_occupation; do
-    python3 -u predict.py --gpuid 0 --dir ./data/oscar/ --data ${DATA}.hdf5 --load_file ./models/robertabase_snli_freezet --pred_output ./models/${DATA}.robertabase_snli_freezet
-done
-
 
 for SEED in 2 3; do
 python3 -u train.py --gpuid 1 --enc oscar_transformer \
-    --bias_v1 ./data/oscar/robertabase_gender_basis.hdf5 \
-    --bias_v2 ./data/oscar/robertabase_occupation_basis.hdf5 \
+    --bias_update_every 100 \
     --seed $SEED \
-    --save_file ./models/robertabase_snli_oscar_seed${SEED} | tee ./models/robertabase_snli_oscar_seed${SEED}.txt
+    --save_file ./models/robertabase_snli_oscar_dyn_seed${SEED} | tee ./models/robertabase_snli_oscar_dyn_seed${SEED}.txt
 done
 
 
@@ -49,10 +45,10 @@ for SEED in 1 2 3; do
     python3 -u predict.py --gpuid 1 --load_file ./models/robertabase_snli_oscar_seed${SEED} | tee ./models/${DATA}.robertabase_snli_oscar_seed${SEED}.test.txt
 done
 
-for SEED in 1 2 3; do
-for DATA in entail contradict gender_occupation; do
-    python3 -u predict.py --gpuid 1 --dir ./data/oscar/ --data ${DATA}.hdf5 --res ${DATA}.x_pair.txt,${DATA}.sent1.txt,${DATA}.sent2.txt --log unlabeled_pred \
-        --load_file ./models/robertabase_snli_oscar_seed${SEED} --pred_output ./models/${DATA}.robertabase_snli_oscar_seed${SEED}
+for SEED in 1; do
+for DATA in entail contradict; do
+    python3 -u predict.py --gpuid 1 --dir ./data/oscar/ --data ${DATA}.hdf5 --res ${DATA}.x_pair.txt,${DATA}.sent1.txt,${DATA}.sent2.txt --ref_log unlabeled_pred \
+        --load_file ./models/robertabase_snli_oscar_dyn_seed${SEED} --pred_output ./models/${DATA}.robertabase_snli_oscar_dyn_seed${SEED}
 done
 done
 
@@ -69,10 +65,10 @@ done
 # load params from baseline, but with architecture of oscar_transformer, and specified bias_v1 and bias_v2.
 for SEED in 1 2 3; do
 for DATA in entail contradict gender_occupation; do
-    python3 -u predict.py --gpuid 1 --dir ./data/oscar/ --data ${DATA}.hdf5 --res ${DATA}.x_pair.txt,${DATA}.sent1.txt,${DATA}.sent2.txt --log unlabeled_pred \
+    python3 -u predict.py --gpuid 1 --dir ./data/oscar/ --data ${DATA}.hdf5 --res ${DATA}.x_pair.txt,${DATA}.sent1.txt,${DATA}.sent2.txt --ref_log unlabeled_pred \
         --ref_enc oscar_transformer  \
-        --bias_v1 ./data/oscar/robertabase_snli_seed${SEED}_gender_basis.hdf5 \
-        --bias_v2 ./data/oscar/robertabase_snli_seed${SEED}_occupation_basis.hdf5 \
+        --ref_bias_v1 ./data/oscar/robertabase_snli_seed${SEED}_gender_basis.hdf5 \
+        --ref_bias_v2 ./data/oscar/robertabase_snli_seed${SEED}_occupation_basis.hdf5 \
         --load_file ./models/robertabase_snli_seed${SEED} --pred_output ./models/${DATA}.robertabase_snli_oscar_postft_seed${SEED}
 done
 done
@@ -81,8 +77,8 @@ done
 for SEED in 1 2 3; do
     python3 -u predict.py --gpuid 1 \
     	--ref_enc oscar_transformer \
-        --bias_v1 ./data/oscar/robertabase_snli_seed${SEED}_gender_basis.hdf5 \
-        --bias_v2 ./data/oscar/robertabase_snli_seed${SEED}_occupation_basis.hdf5 \
+        --ref_bias_v1 ./data/oscar/robertabase_snli_seed${SEED}_gender_basis.hdf5 \
+        --ref_bias_v2 ./data/oscar/robertabase_snli_seed${SEED}_occupation_basis.hdf5 \
         --load_file ./models/robertabase_snli_seed${SEED}
 done
 
@@ -91,22 +87,21 @@ done
 
 python3 -m preprocess.get_projection_basis --transformer_type roberta-base --wordpiece1 he --wordpiece2 she --output ./data/oscar/robertabase_gender_proj.hdf5
 
-for SEED in 1 2 3; do
+for SEED in 2 3; do
 python3 -u train.py --gpuid 1 --enc proj_transformer \
-    --bias_proj ./data/oscar/robertabase_gender_proj.hdf5 \
     --seed $SEED \
     --save_file ./models/robertabase_snli_proj_seed${SEED} | tee ./models/robertabase_snli_proj_seed${SEED}.txt
 done
 
-for SEED in 1 2 3; do
-for DATA in entail contradict gender_occupation; do
-    python3 -u predict.py --gpuid 1 --dir ./data/oscar/ --data ${DATA}.hdf5 --res ${DATA}.x_pair.txt,${DATA}.sent1.txt,${DATA}.sent2.txt --log unlabeled_pred \
+for SEED in 1; do
+for DATA in entail contradict; do
+    python3 -u predict.py --gpuid 0 --dir ./data/oscar/ --data ${DATA}.hdf5 --res ${DATA}.x_pair.txt,${DATA}.sent1.txt,${DATA}.sent2.txt --ref_log unlabeled_pred \
         --load_file ./models/robertabase_snli_proj_seed${SEED} --pred_output ./models/${DATA}.robertabase_snli_proj_seed${SEED}
 done
 done
 
 for SEED in 1 2 3; do
-    python3 -u predict.py --gpuid 1 --load_file ./models/robertabase_snli_proj_seed${SEED} | tee ./models/${DATA}.robertabase_snli_proj_seed${SEED}.test.txt
+    python3 -u predict.py --gpuid 10 --load_file ./models/robertabase_snli_proj_seed${SEED} | tee ./models/${DATA}.robertabase_snli_proj_seed${SEED}.test.txt
 done
 
 ########### debiasing after ft
@@ -117,9 +112,9 @@ done
 
 for SEED in 1 2 3; do
 for DATA in entail contradict gender_occupation; do
-    python3 -u predict.py --gpuid 1 --dir ./data/oscar/ --data ${DATA}.hdf5 --res ${DATA}.x_pair.txt,${DATA}.sent1.txt,${DATA}.sent2.txt --log unlabeled_pred \
+    python3 -u predict.py --gpuid 1 --dir ./data/oscar/ --data ${DATA}.hdf5 --res ${DATA}.x_pair.txt,${DATA}.sent1.txt,${DATA}.sent2.txt --ref_log unlabeled_pred \
         --ref_enc proj_transformer  \
-        --bias_proj ./data/oscar/robertabase_snli_seed${SEED}_gender_proj.hdf5 \
+        --ref_bias_proj ./data/oscar/robertabase_snli_seed${SEED}_gender_proj.hdf5 \
         --load_file ./models/robertabase_snli_seed${SEED} --pred_output ./models/${DATA}.robertabase_snli_proj_postft_seed${SEED}
 done
 done
@@ -127,6 +122,6 @@ done
 for SEED in 1 2 3; do
     python3 -u predict.py --gpuid 1 \
     	--ref_enc proj_transformer \
-        --bias_proj ./data/oscar/robertabase_snli_seed${SEED}_gender_proj.hdf5 \
+        --ref_bias_proj ./data/oscar/robertabase_snli_seed${SEED}_gender_proj.hdf5 \
         --load_file ./models/robertabase_snli_seed${SEED}
 done

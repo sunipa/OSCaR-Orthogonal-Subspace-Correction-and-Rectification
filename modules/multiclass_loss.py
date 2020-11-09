@@ -5,8 +5,7 @@ from torch import nn
 from torch.autograd import Variable
 from util.holder import *
 from util.util import *
-from sklearn.metrics import f1_score
-
+#from sklearn.metrics import f1_score
 
 # Multiclass Loss
 class MulticlassLoss(torch.nn.Module):
@@ -28,7 +27,7 @@ class MulticlassLoss(torch.nn.Module):
 		assert(pred.shape == (batch_l, self.opt.num_label))
 
 		# loss
-		crit = torch.nn.NLLLoss(reduction='sum')	# for pytorch < 0.4.1, use size_average=False
+		crit = torch.nn.NLLLoss(reduction='sum')
 		if self.opt.gpuid != -1:
 			crit = crit.cuda(self.opt.gpuid)
 		loss = crit(log_p, gold[:])
@@ -44,9 +43,6 @@ class MulticlassLoss(torch.nn.Module):
 		for ex_idx, p, g in zip(self.shared.batch_ex_idx, pred, gold):
 			p = int(p)
 			g = int(g)
-			self.all_ex_idx.append(ex_idx)
-			self.all_pred.append(p)
-			self.all_gold.append(g)
 			# update the confusion matrix
 			self.conf_mat[g][p] += 1
 				
@@ -77,10 +73,6 @@ class MulticlassLoss(torch.nn.Module):
 
 		self.num_correct = 0
 		self.num_ex = 0
-
-		self.all_ex_idx = []
-		self.all_pred = []
-		self.all_gold = []
 
 		self.conf_mat = [[0 for _ in range(self.opt.num_label)] for _ in range(self.opt.num_label)]
 

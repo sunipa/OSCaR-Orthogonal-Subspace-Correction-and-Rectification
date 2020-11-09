@@ -1,7 +1,2 @@
-OSCaR-Orthogonal-Subspace-Correction-and-Rectification
-
-
-Functions contained by this repository:
-1. Generation of templates for evaluation of valid gender information contained by embeddings (CNLI).
-2. Debiasing by OSCar
-3. Running evaluations of debiasing and retention of valid information
+# nli_tarnsformers
+NLI model that integrates interfaces of HuggingFace's Transformers

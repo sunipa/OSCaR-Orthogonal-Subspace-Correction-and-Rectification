@@ -13,11 +13,13 @@ def component(word1, word2):
 	w = w/np.linalg.norm(w)
 	return w
 
-def get_he_she_basis(opt, tokenizer, model):
+def get_he_she_basis(tokenizer, model, verbose=True):
 	toks = []
 	words = ['he', 'she']
 	for w in words:
 		ts = tokenizer.tokenize(' '+w)
+		if verbose:
+			print(ts)
 		if len(ts) > 1:
 			print('skipping word {0} since it has multiple subtokens.'.format(w))
 			continue
@@ -25,6 +27,7 @@ def get_he_she_basis(opt, tokenizer, model):
 
 	tok_idx = tokenizer.convert_tokens_to_ids(toks)
 	tok_idx = torch.from_numpy(np.asarray(tok_idx))
+	tok_idx = tok_idx.to(next(model.parameters()).device)
 
 	emb = model.embeddings.word_embeddings(tok_idx)
 	emb = emb.data.cpu()
@@ -34,18 +37,18 @@ def get_he_she_basis(opt, tokenizer, model):
 	she = emb[1].view(-1).numpy()
 
 	basis = he - she / np.linalg.norm(he - she)
-	return tok_idx.numpy(), basis
+	return tok_idx.cpu().numpy(), basis
 
-def get_basis(opt, tokenizer, model):
-	words = opt.wordpieces.split(',')
+def get_basis(tokenizer, model, words, verbose=True):
 
 	if len(words) == 2 and 'he' in words and 'she' in words:
-		return get_he_she_basis(opt, tokenizer, model)
+		return get_he_she_basis(tokenizer, model, verbose)
 
 	toks = []
 	for w in words:
 		ts = tokenizer.tokenize(' '+w)
-		print(ts)
+		if verbose:
+			print(ts)
 		if len(ts) > 1:
 			print('skipping word {0} since it has multiple subtokens.'.format(w))
 			continue
@@ -53,6 +56,7 @@ def get_basis(opt, tokenizer, model):
 
 	tok_idx = tokenizer.convert_tokens_to_ids(toks)
 	tok_idx = torch.from_numpy(np.asarray(tok_idx))
+	tok_idx = tok_idx.to(next(model.parameters()).device)
 	emb = model.embeddings.word_embeddings(tok_idx)
 	emb = emb.data.cpu()
 	assert(len(emb.shape) == 2)
@@ -60,7 +64,7 @@ def get_basis(opt, tokenizer, model):
 	pca = PCA(n_components=len(toks))
 	pca.fit(emb)
 	direction_vector = pca.components_[0]
-	return tok_idx.numpy(), direction_vector
+	return tok_idx.cpu().numpy(), direction_vector
 
 
 def process(opt):
@@ -72,7 +76,7 @@ def process(opt):
 	else:
 		tokenizer = AutoTokenizer.from_pretrained(opt.transformer_type)
 
-	tok_idx, comp = get_basis(opt, tokenizer, model)
+	tok_idx, comp = get_basis(tokenizer, model, opt.wordpieces.split(','))
 	print(comp[:10])
 
 	print("writing to ", opt.output)
@@ -87,8 +91,6 @@ def main(arguments):
 		description=__doc__,
 		formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 	parser.add_argument('--wordpieces', help="List of word pieces, separated by comma", default = "")
-	parser.add_argument('--sent_template', help="A template used to construct a sentence and get word piece embeddings. <mask> will be replaced by each wordpiece.", 
-		default = "A <mask> bought a car.")
 	parser.add_argument('--transformer_type', help="The type of transformer or the pre-trained model of TransformerForNLI", default = "roberta-base")
 	parser.add_argument('--output', help="Prefix of the output file names. ", type=str, default = "")
 	opt = parser.parse_args(arguments)

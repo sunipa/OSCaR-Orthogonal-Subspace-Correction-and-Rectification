@@ -8,6 +8,7 @@ from torch import cuda
 from util.holder import *
 from util.util import *
 from preprocess.preprocess import pad
+from transformers import *
 from modules.transformer_for_nli import *
 import traceback
 
@@ -16,6 +17,7 @@ parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.A
 
 parser.add_argument('--load_file', help="The path to pretrained model (optional)", default = "")
 parser.add_argument('--gpuid', help="The GPU index, if -1 then use CPU", type=int, default=-1)
+parser.add_argument('--fp16', help="Whether to use half precision float for speedup", type=int, default=1)
 
 def process(opt, tokenizer, p, h):
 	bos_tok, eos_tok = get_special_tokens(tokenizer)
@@ -70,12 +72,15 @@ def fix_opt(opt):
 
 
 def init(opt):
-	m = AutoModel.from_pretrained(opt.load_file, overwrite_opt = opt)
-	tokenizer = AutoTokenizer.from_pretrained(opt.load_file, config=m.encoder.transformer.config, add_special_tokens=False, use_fast=True)
+	m = AutoModel.from_pretrained(opt.load_file, global_opt=opt)
+	tokenizer = AutoTokenizer.from_pretrained(opt.transformer_type, add_special_tokens=False)
 	opt = fix_opt(m.config)
 
 	if opt.gpuid != -1:
 		m.distribute()
+
+	if opt.fp16 == 1:
+		m = m.half()
 
 	return opt, m, tokenizer
 

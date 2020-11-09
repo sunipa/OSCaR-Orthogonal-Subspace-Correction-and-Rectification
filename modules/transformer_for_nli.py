@@ -10,8 +10,6 @@ from .transformer_encoder import *
 from .oscar_transformer_encoder import *
 from .proj_transformer_encoder import *
 from .linear_classifier import *
-from .multiclass_loss import *
-import transformers
 from transformers.modeling_utils import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
 
@@ -21,6 +19,7 @@ from transformers.configuration_utils import PretrainedConfig
 # t = AutoTokenizer.from_pretrained(/path/to/transformer_for_nli_model/, config=m.encoder.transformer.config)
 
 class TransformerForNLIConfig(PretrainedConfig):
+	model_type = "transformerfornli"
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
 
@@ -32,12 +31,11 @@ class TransformerForNLI(PreTrainedModel):
 		super().__init__(config)
 		
 		# options can be overwritten by externally specified ones
-		if 'overwrite_opt' in model_kwargs:
-			for k, v in model_kwargs['overwrite_opt'].__dict__.items():
+		if 'global_opt' in model_kwargs:
+			for k, v in model_kwargs['global_opt'].__dict__.items():
 				setattr(config, k, v)
 			for k, v in config.__dict__.items():
-				setattr(model_kwargs['overwrite_opt'], k, v)
-
+				setattr(model_kwargs['global_opt'], k, v)
 
 		if config.enc == 'transformer':
 			self.encoder = TransformerEncoder(config)
@@ -52,11 +50,6 @@ class TransformerForNLI(PreTrainedModel):
 			self.classifier = LinearClassifier(config)
 		else:
 			raise Exception('unrecognized classifier type: ', config.cls)
-
-		if config.loss == 'multiclass':
-			self.loss = MulticlassLoss(config)
-		else:
-			raise Exception('unrecognized loss type: ', config.loss)
 
 		self.log = None
 		if hasattr(config, 'log') and config.log != '':
@@ -82,7 +75,7 @@ class TransformerForNLI(PreTrainedModel):
 		missed_names = []
 		if self.config.param_init_type == 'xavier_uniform':
 			for n, p in self.named_parameters():
-				if p.requires_grad and not hasattr(p, 'skip_init'):
+				if p.requires_grad and not hasattr(p, 'skip_rand_init'):
 					if 'weight' in n:
 						print('initializing {}'.format(n))
 						nn.init.xavier_uniform_(p)
@@ -95,7 +88,7 @@ class TransformerForNLI(PreTrainedModel):
 					missed_names.append(n)
 		elif self.config.param_init_type == 'xavier_normal':
 			for n, p in self.named_parameters():
-				if p.requires_grad and not hasattr(p, 'skip_init'):
+				if p.requires_grad and not hasattr(p, 'skip_rand_init'):
 					if 'weight' in n:
 						print('initializing {}'.format(n))
 						nn.init.xavier_normal_(p)
@@ -120,7 +113,7 @@ class TransformerForNLI(PreTrainedModel):
 		print('total number of trainable parameters: {0}'.format(num_params))
 
 
-	def forward(self, p_toks, h_toks, label=None):
+	def forward(self, p_toks, h_toks):
 		# encoder
 		if hasattr(self.config, 'freeze_transformer') and self.config.freeze_transformer == 1:
 			with torch.no_grad():
@@ -131,32 +124,23 @@ class TransformerForNLI(PreTrainedModel):
 		# classifier
 		output = self.classifier(enc)
 
-		# loss
-		if label is not None:
-			loss = self.loss(output, label)
-			rs = output, loss
-		else:
-			rs = output
-
 		# logging
 		if self.log is not None:
-			self.log.record(output, loss)
+			self.log.record(output)
 
-		return rs
+		return output
 
 
 	def begin_pass(self, shared):
 		self.shared = shared
 		self.encoder.begin_pass(self.shared)
 		self.classifier.begin_pass(self.shared)
-		self.loss.begin_pass(self.shared)
 		if self.log is not None:
 			self.log.begin_pass(self.shared)
 
 	def end_pass(self):
 		self.encoder.end_pass()
 		self.classifier.end_pass()
-		self.loss.end_pass()
 		if self.log is not None:
 			self.log.end_pass()
 
@@ -166,9 +150,6 @@ class TransformerForNLI(PreTrainedModel):
 		modules.append(self.classifier)
 
 		for m in modules:
-			if hasattr(m, 'fp16') and  m.fp16:
-				m.half()
-
 			if hasattr(m, 'customize_cuda_id'):
 				print('pushing module to customized cuda id: {0}'.format(m.customize_cuda_id))
 				m.cuda(m.customize_cuda_id)

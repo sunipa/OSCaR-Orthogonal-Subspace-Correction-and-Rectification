@@ -3,43 +3,10 @@ import h5py
 import torch
 from torch import nn
 from torch import cuda
-import string
-import re
-from collections import Counter
 import numpy as np
-from transformers import *
 
 def update_shared_context(shared, context):
 	shared.__dict__.update(context.__dict__)
-
-def complete_opt(opt):
-	if 'base' in opt.transformer_type:
-		opt.hidden_size = 768
-	elif 'large' in opt.transformer_type:
-		opt.hidden_size = 1024
-	#
-	if hasattr(opt, 'train_data'): 
-		opt.train_data = opt.dir + opt.train_data
-	if hasattr(opt, 'val_data'):
-		opt.val_data = opt.dir + opt.val_data
-	if hasattr(opt, 'train_res'):
-		opt.train_res = '' if opt.train_res == ''  else ','.join([opt.dir + path for path in opt.train_res.split(',')])
-	if hasattr(opt, 'val_res'):
-		opt.val_res = '' if opt.val_res == ''  else ','.join([opt.dir + path for path in opt.val_res.split(',')])
-
-	if hasattr(opt, 'label_dict'):
-		opt.label_dict = opt.dir + opt.label_dict
-		opt.labels, opt.label_map_inv = load_label_dict(opt.label_dict)
-
-	# if opt is loaded as argparse.Namespace from json, it would lose track of data type, enforce types here
-	opt.label_map_inv = {int(k): v for k, v in opt.label_map_inv.items()}
-	opt.num_label = len(opt.labels)
-
-	# default on transformers pretrained config
-	config = AutoConfig.from_pretrained(opt.transformer_type)
-	config.__dict__.update(opt.__dict__)
-	return config
-
 
 def load_label_dict(label_dict):
 	labels = []

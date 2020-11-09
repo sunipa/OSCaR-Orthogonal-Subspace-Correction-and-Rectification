@@ -13,8 +13,8 @@ def component(word1, word2):
 	w = w/np.linalg.norm(w)
 	return w
 
-def get_vec(opt, tokenizer, model):
-	words = [opt.wordpiece1, opt.wordpiece2]
+def get_vec(tokenizer, model, words, verbose=True):
+	assert(len(words) == 2)
 	toks = []
 	for w in words:
 		ts = tokenizer.tokenize(' '+w)
@@ -23,11 +23,12 @@ def get_vec(opt, tokenizer, model):
 			continue
 		toks.append(ts[0])	# only take the first token/wordpiece
 
-	print('using subtoks:')
-	print(toks)
+	if verbose:
+		print('using subtoks:')
+		print(toks)
 	tok_idx = tokenizer.convert_tokens_to_ids(toks)
 	tok_idx = torch.from_numpy(np.asarray(tok_idx))
-
+	tok_idx = tok_idx.to(next(model.parameters()).device)
 	emb = model.embeddings.word_embeddings(tok_idx)
 	emb = emb.data.cpu()
 	assert(emb.shape == (2, 768))
@@ -38,10 +39,12 @@ def get_vec(opt, tokenizer, model):
 	a_norm = torch.sqrt(torch.dot(a, a))
 	b_norm = torch.sqrt(torch.dot(b, b))
 	cos_sim = dot / a_norm / b_norm
-	print('cos sim: {0}'.format(cos_sim))
+
+	if verbose:
+		print('cos sim: {0}'.format(cos_sim))
 
 	comp = component(emb[0].numpy(), emb[1].numpy())
-	return tok_idx.numpy(), comp
+	return tok_idx.cpu().numpy(), comp
 
 
 def process(opt):
@@ -52,7 +55,7 @@ def process(opt):
 	else:
 		tokenizer = AutoTokenizer.from_pretrained(opt.transformer_type)
 
-	tok_idx, comp = get_vec(opt, tokenizer, model)
+	tok_idx, comp = get_vec(tokenizer, model, [opt.wordpiece1, opt.wordpiece2])
 	print(comp[:10])
 
 	f = h5py.File(opt.output, "w")	

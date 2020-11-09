@@ -8,6 +8,7 @@ from util.holder import *
 from util.util import *
 from util.oscar import *
 from transformers.modeling_roberta import *
+from preprocess.get_projection_basis import *
 
 class ProjTransformerEncoder(nn.Module):
 	def __init__(self, opt):
@@ -15,15 +16,16 @@ class ProjTransformerEncoder(nn.Module):
 		self.opt = opt
 		
 		self.transformer = AutoModel.from_pretrained(self.opt.transformer_type)
+		self._tokenizer = AutoTokenizer.from_pretrained(opt.transformer_type)
 
 		for n in self.transformer.children():
 			for p in n.parameters():
-				p.skip_init = True
+				p.skip_rand_init = True
 
 		self.bias_proj = nn.Parameter(torch.zeros(1, self.opt.hidden_size), requires_grad=False)
-		self.bias_proj.skip_init = True
+		self.bias_proj.skip_rand_init = True	# skip random initialization
 
-		# load rotation basises if explicitly specified
+		# load projection vector if explicitly specified
 		if hasattr(self.opt, 'bias_proj') and self.opt.bias_proj != '':
 			print('loading bias vector from {0}...'.format(self.opt.bias_proj))
 			bias_f = h5py.File(self.opt.bias_proj, 'r')
@@ -33,27 +35,28 @@ class ProjTransformerEncoder(nn.Module):
 			# 	wipe out the file pointers, to avoid reloading since params will be saved into the model during training
 			self.opt.bias_proj = ''
 
+		# extract projection basis
+		else:
+			print('initializing gender projection basis...')
+			self._update_projection_basis()
 
-	# carefully hacked from roberta embedding forward pass from transformers v=3.4.0
-	#	double check if the flow still applies when upgrading trasnformers
-	#	TODO, support other transformers
+
+	def _update_projection_basis(self, gender_ws=['he', 'she']):
+		_, gender = get_vec(self._tokenizer, self.transformer, gender_ws, verbose=False)
+		dtype = self.bias_proj.data.dtype
+		self.bias_proj.data = torch.from_numpy(gender).float().view(1, -1)
+		self.bias_proj.data = to_device(self.bias_proj.data.to(dtype), self.opt.gpuid)
+
+
+	# TODO, support other transformers
 	def forward(self, p_toks, h_toks):
 		if 'roberta' not in self.opt.transformer_type:
-			raise Exception('rotation operation is not yet supported for transformer type', self.opt.transformer_type)
+			raise Exception('Unsupported transformer type', self.opt.transformer_type)
 
 		def _embeddings_projected(input_ids, token_type_ids=None):
-			# Create the position ids from the input token ids. Any padded tokens remain padded.
-			position_ids = create_position_ids_from_input_ids(input_ids, self.transformer.embeddings.padding_idx).to(input_ids.device)
-	
-			# Copied from transformers.modeling_bert.BertEmbeddings.forward
 			input_shape = input_ids.size()
-	
-			seq_length = input_shape[1]
-	
-			position_ids = self.transformer.embeddings.position_ids[:, :seq_length]
-	
-			if token_type_ids is None:
-				token_type_ids = torch.zeros(input_shape, dtype=torch.long, device=self.transformer.embeddings.position_ids.device)
+			position_ids = torch.arange(input_shape[1], dtype=torch.long, device=input_ids.device)
+			position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
 	
 			inputs_embeds = self.transformer.embeddings.word_embeddings(input_ids)
 			position_embeddings = self.transformer.embeddings.position_embeddings(position_ids)
@@ -64,7 +67,6 @@ class ProjTransformerEncoder(nn.Module):
 			bias_proj = self.bias_proj.view(1, 1, emb_size).expand(batch_l, 1, emb_size)
 			prod = torch.bmm(inputs_embeds, bias_proj.transpose(1,2))	# (batch_l, seq_l, 1)
 			inputs_embeds_projected = inputs_embeds - prod * bias_proj
-			inputs_embeds_projected = inputs_embeds_projected.view(batch_l, seq_l, emb_size)
 
 			embeddings = inputs_embeds_projected + position_embeddings + token_type_embeddings
 			embeddings = self.transformer.embeddings.LayerNorm(embeddings)
@@ -73,16 +75,19 @@ class ProjTransformerEncoder(nn.Module):
 
 		input_ids = torch.cat([p_toks, h_toks[:, 1:]], dim=1)
 
-		input_shape = input_ids.size()
-
 		attention_mask = torch.ones_like(input_ids)
 		token_type_ids = torch.zeros_like(input_ids)
 
-		extended_attention_mask: torch.Tensor = self.transformer.get_extended_attention_mask(attention_mask, input_shape, input_ids.device)
-		head_mask = self.transformer.get_head_mask(head_mask=None, num_hidden_layers=self.transformer.config.num_hidden_layers)
+		if self.training and self.opt.bias_update_every != -1:
+			if self.shared.num_update != 0 and self.shared.num_update % self.opt.bias_update_every == 0:
+				self._update_projection_basis()
 		
 		embedding_output = _embeddings_projected(input_ids, token_type_ids)
 
+		head_mask = [None] * self.transformer.config.num_hidden_layers
+		extended_attention_mask = attention_mask[:, None, None, :]
+		extended_attention_mask = extended_attention_mask.to(dtype=next(self.transformer.parameters()).dtype) # fp16 compatibility
+		extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
 		encoder_outputs = self.transformer.encoder(
 			embedding_output,
 			attention_mask=extended_attention_mask,

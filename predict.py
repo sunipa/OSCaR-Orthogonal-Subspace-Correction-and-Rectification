@@ -8,9 +8,10 @@ from torch import cuda
 from util.holder import *
 from util.util import *
 from util.data import *
+from transformers import *
+from modules.multiclass_loss import *
 from modules.transformer_for_nli import *
 from demo import *
-from transformers import *
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
@@ -20,17 +21,16 @@ parser.add_argument('--dir', help="Path to the data dir", default="./data/snli_1
 parser.add_argument('--data', help="Path to training data hdf5 file.", default="snli.test.hdf5")
 parser.add_argument('--res', help="Path to validation resource files, seperated by comma.", default="")
 parser.add_argument('--gpuid', help="The GPU index, if -1 then use CPU", type=int, default=-1)
+parser.add_argument('--fp16', help="Whether to use half precision float for speedup", type=int, default=1)
 #
-parser.add_argument('--log', help="The type of log", default='')
 parser.add_argument('--pred_output', help="Path to the prediction dump location", default="")
-# oscar related options if these were absent from training
-parser.add_argument('--bias_v1', help="Path to the bias direction1 hdf5", default="")
-parser.add_argument('--bias_v2', help="Path to the bias direction2 hdf5", default="")
-parser.add_argument('--bias_proj', help="Path to the bias projection hdf5", default="")
-# reference architecture
+# reference architecture and options which will overwrite the loaded ones
 parser.add_argument('--ref_enc', help="Reference encoder type", default="")
 parser.add_argument('--ref_cls', help="Reference classifier type", default="")
-parser.add_argument('--ref_loss', help="Reference loss type", default="")
+parser.add_argument('--ref_log', help="Reference log type", default='')
+parser.add_argument('--ref_bias_v1', help="Path to the bias direction1 hdf5", default="")
+parser.add_argument('--ref_bias_v2', help="Path to the bias direction2 hdf5", default="")
+parser.add_argument('--ref_bias_proj', help="Path to the bias projection hdf5", default="")
 
 
 def fix_opt(opt):
@@ -38,8 +38,14 @@ def fix_opt(opt):
 		opt.enc = opt.ref_enc
 	if opt.ref_cls != '':
 		opt.cls = opt.ref_cls
-	if opt.ref_loss != '':
-		opt.loss = opt.ref_loss
+	if opt.ref_log != '':
+		opt.log = opt.ref_log
+	if opt.ref_bias_v1 != '':
+		opt.bias_v1 = opt.ref_bias_v1
+	if opt.ref_bias_v2 != '':
+		opt.bias_v2 = opt.ref_bias_v2
+	if opt.ref_bias_proj != '':
+		opt.bias_proj = opt.ref_bias_proj
 	return opt
 
 
@@ -52,7 +58,10 @@ def evaluate(opt, shared, m, data):
 	data_size = val_idx.size()[0]
 	print('evaluating on {0} batches {1} examples'.format(data_size, val_num_ex))
 
+	loss = MulticlassLoss(opt)
+
 	m.begin_pass(shared)
+	loss.begin_pass(shared)
 	for i in range(data_size):
 
 		(p_toks, h_toks, label), batch_context = data[i]
@@ -64,7 +73,9 @@ def evaluate(opt, shared, m, data):
 
 		with torch.no_grad():
 			# forward
-			pred, batch_loss = m(p_toks, h_toks, label)
+			pred = m(p_toks, h_toks)
+
+		batch_loss = loss(pred, label)
 
 		# stats
 		num_ex += shared.batch_l
@@ -72,7 +83,8 @@ def evaluate(opt, shared, m, data):
 		if (i+1) % 2000 == 0:
 			print('evaluated {0} batches'.format(i+1))
 
-	perf, extra_perf = m.loss.get_epoch_metric()
+	perf, extra_perf = loss.get_epoch_metric()
+	loss.end_pass()
 	m.end_pass()
 	print('finished evaluation on {0} examples'.format(num_ex))
 
@@ -86,6 +98,7 @@ def main(args):
 	opt = fix_opt(opt)
 
 	opt, m, tokenizer = init(opt)
+
 	# 
 	opt.data = opt.dir + opt.data
 	opt.res = '' if opt.res == ''  else ','.join([opt.dir + path for path in opt.res.split(',')])

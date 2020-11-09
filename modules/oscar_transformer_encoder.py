@@ -8,6 +8,7 @@ from util.holder import *
 from util.util import *
 from util.oscar import *
 from transformers.modeling_roberta import *
+from preprocess.get_rotation_basis import *
 
 class OSCaRTransformerEncoder(nn.Module):
 	def __init__(self, opt):
@@ -15,18 +16,19 @@ class OSCaRTransformerEncoder(nn.Module):
 		self.opt = opt
 		
 		self.transformer = AutoModel.from_pretrained(self.opt.transformer_type)
+		self._tokenizer = AutoTokenizer.from_pretrained(opt.transformer_type)
 
 		for n in self.transformer.children():
 			for p in n.parameters():
-				p.skip_init = True
+				p.skip_rand_init = True
 
 		self.bias_v1 = nn.Parameter(torch.zeros(1, self.opt.hidden_size), requires_grad=False)
 		self.bias_v2 = nn.Parameter(torch.zeros(1, self.opt.hidden_size), requires_grad=False)
 		self.rot_mat = nn.Parameter(torch.zeros(self.opt.hidden_size, self.opt.hidden_size), requires_grad=False)
 
-		self.bias_v1.skip_init = True
-		self.bias_v2.skip_init = True
-		self.rot_mat.skip_init = True
+		self.bias_v1.skip_rand_init = True
+		self.bias_v2.skip_rand_init = True
+		self.rot_mat.skip_rand_init = True
 
 		# load rotation basises if explicitly specified
 		if hasattr(self.opt, 'bias_v1') and hasattr(self.opt, 'bias_v2') and self.opt.bias_v1 != '' and self.opt.bias_v2 != '':
@@ -47,27 +49,34 @@ class OSCaRTransformerEncoder(nn.Module):
 			self.opt.bias_v1 = ''
 			self.opt.bias_v2 = ''
 
+		# extract rotation basis
+		else:
+			print('initializing gender and occupation rotation basises...')
+			self._update_rotation_basis()
 
-	# carefully hacked from roberta embedding forward pass from transformers v=3.4.0
-	#	double check if the flow still applies when upgrading trasnformers
-	#	TODO, support other transformers
+	def _update_rotation_basis(self, gender_ws=['he', 'she'], occupation_ws=['scientist','doctor','nurse','secretary','cleaner','maid','dancer','advocate','player','banker']):
+		_, gender = get_basis(self._tokenizer, self.transformer, gender_ws, verbose=False)
+		_, occupation = get_basis(self._tokenizer, self.transformer, occupation_ws, verbose=False)
+		dtype = self.bias_v1.data.dtype
+		self.bias_v1.data = torch.from_numpy(gender).float().view(1, -1)
+		self.bias_v2.data = torch.from_numpy(occupation).float().view(1, -1)
+		v1, v2 = max_span(self.bias_v1, self.bias_v2)
+		self.rot_mat.data = get_gs_constrained(v1, v2)
+		#
+		self.bias_v1.data = to_device(self.bias_v1.data.to(dtype), self.opt.gpuid)
+		self.bias_v2.data = to_device(self.bias_v2.data.to(dtype), self.opt.gpuid)
+		self.rot_mat.data = to_device(self.rot_mat.data.to(dtype), self.opt.gpuid)
+
+
+	# TODO, support other transformers
 	def forward(self, p_toks, h_toks):
 		if 'roberta' not in self.opt.transformer_type:
-			raise Exception('rotation operation is not yet supported for transformer type', self.opt.transformer_type)
+			raise Exception('Unsupported transformer type', self.opt.transformer_type)
 
-		def _embeddings_corrected(input_ids, token_type_ids=None):
-			# Create the position ids from the input token ids. Any padded tokens remain padded.
-			position_ids = create_position_ids_from_input_ids(input_ids, self.transformer.embeddings.padding_idx).to(input_ids.device)
-	
-			# Copied from transformers.modeling_bert.BertEmbeddings.forward
+		def _embeddings_corrected(input_ids, token_type_ids):
 			input_shape = input_ids.size()
-	
-			seq_length = input_shape[1]
-	
-			position_ids = self.transformer.embeddings.position_ids[:, :seq_length]
-	
-			if token_type_ids is None:
-				token_type_ids = torch.zeros(input_shape, dtype=torch.long, device=self.transformer.embeddings.position_ids.device)
+			position_ids = torch.arange(input_shape[1], dtype=torch.long, device=input_ids.device)
+			position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
 	
 			inputs_embeds = self.transformer.embeddings.word_embeddings(input_ids)
 			position_embeddings = self.transformer.embeddings.position_embeddings(position_ids)
@@ -87,16 +96,19 @@ class OSCaRTransformerEncoder(nn.Module):
 
 		input_ids = torch.cat([p_toks, h_toks[:, 1:]], dim=1)
 
-		input_shape = input_ids.size()
-
 		attention_mask = torch.ones_like(input_ids)
 		token_type_ids = torch.zeros_like(input_ids)
 
-		extended_attention_mask: torch.Tensor = self.transformer.get_extended_attention_mask(attention_mask, input_shape, input_ids.device)
-		head_mask = self.transformer.get_head_mask(head_mask=None, num_hidden_layers=self.transformer.config.num_hidden_layers)
+		if self.training and self.opt.bias_update_every != -1:
+			if self.shared.num_update != 0 and self.shared.num_update % self.opt.bias_update_every == 0:
+				self._update_rotation_basis()
 		
 		embedding_output = _embeddings_corrected(input_ids, token_type_ids)
 
+		head_mask = [None] * self.transformer.config.num_hidden_layers
+		extended_attention_mask = attention_mask[:, None, None, :]
+		extended_attention_mask = extended_attention_mask.to(dtype=next(self.transformer.parameters()).dtype) # fp16 compatibility
+		extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
 		encoder_outputs = self.transformer.encoder(
 			embedding_output,
 			attention_mask=extended_attention_mask,
@@ -113,6 +125,7 @@ class OSCaRTransformerEncoder(nn.Module):
 	# call this before running forward func to setup context for the batch
 	def begin_pass(self, shared):
 		self.shared = shared
+		self._update_rotation_basis()
 
 	# call this before running the next forward to reset context
 	def end_pass(self):
