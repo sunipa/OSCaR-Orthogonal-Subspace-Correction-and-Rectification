@@ -1,4 +1,4 @@
-<p align="center"><img width="40%" src="logo.png" /></p>
+<p align="center"><img width="50%" src="logo.png" /></p>
 
 ----
 Implementation of our EMNLP 2021 paper: [OSCaR: Orthogonal Subspace Correction and Rectification of Biases in Word Embeddings](https://arxiv.org/abs/2007.00049)
@@ -11,8 +11,18 @@ Implementation of our EMNLP 2021 paper: [OSCaR: Orthogonal Subspace Correction a
 }
 ```
 
+This readme is about how to reproduce our results. Specifically,
+* [Dependencies and Datasets](#prereq)
+* [Data Preprocessing](#preprocess)
+* [Training/Evaluating vanilla NLI models without bias mitigation](#vanilla)
+* [Training/Evaluating NLI models with OSCaR](#oscar)
+* [Training/Evaluating NLI models with projective debiasing](#projective)
+* [Training/Evaluating NLI models with debiased embeddings](#debiased_emb)
+
+
 
 ----
+<a name="prereq"></a>
 ## Prerequisites
 In addition to the packages in ``requirements.txt``, pleast also install nvidia-apex from [here](https://github.com/NVIDIA/apex).
 
@@ -20,6 +30,8 @@ Download snli_1.0 data and make the txt files located at ``./data/snli_1.0/``.
 
 The evaluation datasets are located at ``./data/oscar.zip``. Make those files located at ``./data/oscar/``.
 
+----
+<a name="preprocess"></a>
 ## Preprocess
 You can process SNLI dataset by the following:
 ```
@@ -39,6 +51,7 @@ To use other type of transformers, use the ``--transformer_type`` option to cust
 Lastly, reserve a directory for models and logs at ``./models/``.
 
 ----
+<a name="vanilla"></a>
 ## Vanilla NLI models
 
 You can train vanilla NLI models without using any bias-mitigation techniques.
@@ -69,8 +82,42 @@ done
 done
 ```
 
+
 ----
-## NLI models with projective debiasing
+<a name="oscar"></a>
+## OSCaR
+
+You can train NLI models with rotational debiasing (OSCaR) via:
+```
+GPUID=[GPUID]
+for SEED in 1 2 3; do
+    python3 -u train.py --gpuid $GPUID --enc oscar_transformer --seed $SEED \
+        --save_file ./models/robertabase_snli_oscar_seed${SEED} | tee ./models/robertabase_snli_oscar_seed${SEED}.txt
+done
+```
+
+To evaluate on the official SNLI test set, run:
+```
+for SEED in 1 2 3; do
+    python3 -u predict.py --gpuid $GPUID \
+        --load_file ./models/robertabase_snli_oscar_seed${SEED} | tee ./models/robertabase_snli_oscar_seed${SEED}.test.txt
+done
+```
+
+To evaluate on our NLI bias datasets, run:
+```
+for SEED in 1 2 3; do
+for DATA in entail contradict gender_occupation; do
+    python3 -u predict.py --gpuid $GPUID --dir ./data/oscar/ --data ${DATA}.hdf5 \
+        --res ${DATA}.x_pair.txt,${DATA}.sent1.txt,${DATA}.sent2.txt --ref_log unlabeled \
+        --load_file ./models/robertabase_snli_oscar_seed${SEED} --pred_output ./models/${DATA}.robertabase_snli_oscar_seed${SEED}
+done
+done
+```
+
+----
+<a name="projective"></a>
+## Projective Debiasing
 
 You can train NLI models with projective debiasing via:
 ```
@@ -101,38 +148,11 @@ done
 ```
 
 ----
-## NLI models with OSCaR
+<a name="debiased_emb"></a>
+## Using Debiased Embeddings
 
-You can train NLI models with rotational debiasing (OSCaR) via:
-```
-GPUID=[GPUID]
-for SEED in 1 2 3; do
-	python3 -u train.py --gpuid $GPUID --enc oscar_transformer --seed $SEED \
-    	--save_file ./models/robertabase_snli_oscar_seed${SEED} | tee ./models/robertabase_snli_oscar_seed${SEED}.txt
-done
-```
-
-To evaluate on the official SNLI test set, run:
-```
-for SEED in 1 2 3; do
-    python3 -u predict.py --gpuid $GPUID \
-    	--load_file ./models/robertabase_snli_oscar_seed${SEED} | tee ./models/robertabase_snli_oscar_seed${SEED}.test.txt
-done
-```
-
-To evaluate on our NLI bias datasets, run:
-```
-for SEED in 1 2 3; do
-for DATA in entail contradict gender_occupation; do
-    python3 -u predict.py --gpuid $GPUID --dir ./data/oscar/ --data ${DATA}.hdf5 \
-    	--res ${DATA}.x_pair.txt,${DATA}.sent1.txt,${DATA}.sent2.txt --ref_log unlabeled \
-        --load_file ./models/robertabase_snli_oscar_seed${SEED} --pred_output ./models/${DATA}.robertabase_snli_oscar_seed${SEED}
-done
-done
-```
-
-----
-## NLI models with debiased embeddings, e.g. Hard Debiasing (HD), INLP\*
+We can use preprocessed embeddings to start model training, such as hard debiasing (HD) and INLP\*.
+By default, these embeddings are subject to gradient update during training.
 
 We have uploaded preprocessed embedding files for HD and INLP\*.
 Simply unzip ``./data/roberta_emb_hd.zip`` and ``./data/roberta_emb_iter_filtered.zip``, and make the ``.txt`` files located at ``./data/``.
