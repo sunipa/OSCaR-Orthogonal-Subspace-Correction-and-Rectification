@@ -1,5 +1,4 @@
-# OsCAR
-OSCAR: Orthogonal Subspace Correction and Rectification of Biases inWord Embeddings
+# OSCaR: Orthogonal Subspace Correction and Rectification of Biases inWord Embeddings
 
 
 ## Prerequisites
