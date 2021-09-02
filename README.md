@@ -1,6 +1,18 @@
-# OSCaR: Orthogonal Subspace Correction and Rectification of Biases in Word Embeddings
+<p align="center"><img width="40%" src="logo.png" /></p>
+
+----
+Implementation of our EMNLP 2021 paper: [OSCaR: Orthogonal Subspace Correction and Rectification of Biases in Word Embeddings](https://arxiv.org/abs/2007.00049)
+```
+@inproceedings{dev2020oscar,
+    title={OSCaR: Orthogonal Subspace Correction and Rectification of Biases in Word Embeddings},
+    author={Dev, Sunipa and Li, Tao and Phillips, Jeff M and Srikumar, Vivek},
+    booktitle = {Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing},
+    year = {2021}
+}
+```
 
 
+----
 ## Prerequisites
 In addition to the packages in ``requirements.txt``, pleast also install nvidia-apex from [here](https://github.com/NVIDIA/apex).
 
@@ -26,7 +38,8 @@ To use other type of transformers, use the ``--transformer_type`` option to cust
 
 Lastly, reserve a directory for models and logs at ``./models/``.
 
-## Training vanilla NLI models
+----
+## Vanilla NLI models
 
 You can train vanilla NLI models without using any bias-mitigation techniques.
 ```
@@ -56,7 +69,8 @@ done
 done
 ```
 
-## Training NLI models with projective debiasing
+----
+## NLI models with projective debiasing
 
 You can train NLI models with projective debiasing via:
 ```
@@ -86,7 +100,8 @@ done
 done
 ```
 
-## Training NLI models with OSCaR
+----
+## NLI models with OSCaR
 
 You can train NLI models with rotational debiasing (OSCaR) via:
 ```
@@ -116,7 +131,8 @@ done
 done
 ```
 
-## Training with debiased embeddings, e.g. Hard Debiasing (HD), INLP\*
+----
+## NLI models with debiased embeddings, e.g. Hard Debiasing (HD), INLP\*
 
 We have uploaded preprocessed embedding files for HD and INLP\*.
 Simply unzip ``./data/roberta_emb_hd.zip`` and ``./data/roberta_emb_iter_filtered.zip``, and make the ``.txt`` files located at ``./data/``.
