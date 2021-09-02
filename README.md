@@ -1,4 +1,4 @@
-# OSCaR: Orthogonal Subspace Correction and Rectification of Biases inWord Embeddings
+# OSCaR: Orthogonal Subspace Correction and Rectification of Biases in Word Embeddings
 
 
 ## Prerequisites
@@ -86,9 +86,9 @@ done
 done
 ```
 
-## Training NLI models with OsCAR
+## Training NLI models with OSCaR
 
-You can train NLI models with rotational debiasing (OsCAR) via:
+You can train NLI models with rotational debiasing (OSCaR) via:
 ```
 GPUID=[GPUID]
 for SEED in 1 2 3; do
