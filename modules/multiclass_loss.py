@@ -45,7 +45,6 @@ class MulticlassLoss(torch.nn.Module):
 			g = int(g)
 			# update the confusion matrix
 			self.conf_mat[g][p] += 1
-				
 
 		return loss
 

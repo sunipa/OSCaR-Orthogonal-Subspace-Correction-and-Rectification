@@ -4,6 +4,21 @@ import torch
 from torch import nn
 from torch import cuda
 import numpy as np
+from transformers import *
+
+def load_emb(vocab, path):
+	rs = None
+	with open(path, 'r') as f:
+		for i, l in enumerate(f):
+			if l.strip() == '':
+					continue
+			toks = l.split()
+			key, v = toks[0], [float(p) for p in toks[1:]]
+
+			if i == 0:
+				rs = torch.zeros((len(vocab), len(v)))
+			rs[vocab[key]] = torch.Tensor(v)
+	return rs
 
 def update_shared_context(shared, context):
 	shared.__dict__.update(context.__dict__)

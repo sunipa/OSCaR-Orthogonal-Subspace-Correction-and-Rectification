@@ -4,14 +4,24 @@ from torch import nn
 from torch import cuda
 import numpy as np
 from util.holder import *
-from log.unlabeled_pred import *
+from log.unlabeled_log import *
 from .optimizer import *
 from .transformer_encoder import *
 from .oscar_transformer_encoder import *
 from .proj_transformer_encoder import *
+from .transformer_we_encoder import *
 from .linear_classifier import *
-from transformers.modeling_utils import PreTrainedModel
-from transformers.configuration_utils import PretrainedConfig
+
+from packaging import version
+import transformers
+if version.parse(transformers.__version__) < version.parse('4.0'):
+	# for transformers 3+
+	from transformers.modeling_roberta import RobertaPreTrainedModel
+	from transformers.configuration_roberta import RobertaConfig
+else:
+	# for transformers 4+
+	from transformers.models.roberta.modeling_roberta import RobertaPreTrainedModel
+	from transformers.models.roberta.configuration_roberta import RobertaConfig
 
 ############ NOTE for tokenizer loading
 # as of now, the recommended way to auto-load tokenizer is to firstly load the model:
@@ -43,6 +53,12 @@ class TransformerForNLI(PreTrainedModel):
 			self.encoder = OSCaRTransformerEncoder(config)
 		elif config.enc == 'proj_transformer':
 			self.encoder = ProjTransformerEncoder(config)
+		elif config.enc == 'transformer_we':
+			self.encoder = TransformerWEEncoder(config)
+		elif config.enc == 'oscar_transformer_we':
+			self.encoder = OSCaRTransformerWEEncoder(config)
+		elif config.enc == 'proj_transformer_we':
+			self.encoder = ProjTransformerWEEncoder(config)
 		else:
 			raise Exception('unrecognized encoder type: ', config.enc)
 
@@ -53,8 +69,8 @@ class TransformerForNLI(PreTrainedModel):
 
 		self.log = None
 		if hasattr(config, 'log') and config.log != '':
-			if config.log == 'unlabeled_pred':
-				self.log = UnlabeledPred(config)
+			if config.log == 'unlabeled':
+				self.log = UnlabeledLog(config)
 			else:
 				raise Exception('unrecognized log type: ', config.log)
 
@@ -113,13 +129,9 @@ class TransformerForNLI(PreTrainedModel):
 		print('total number of trainable parameters: {0}'.format(num_params))
 
 
-	def forward(self, p_toks, h_toks):
+	def __forward(self, p_toks, h_toks):
 		# encoder
-		if hasattr(self.config, 'freeze_transformer') and self.config.freeze_transformer == 1:
-			with torch.no_grad():
-				enc = self.encoder(p_toks, h_toks)
-		else:
-			enc = self.encoder(p_toks, h_toks)
+		enc = self.encoder(p_toks, h_toks)
 
 		# classifier
 		output = self.classifier(enc)
@@ -129,6 +141,12 @@ class TransformerForNLI(PreTrainedModel):
 			self.log.record(output)
 
 		return output
+
+	def forward(self, p_toks, h_toks):
+		if 'amp' in self.config.optim:
+			with autocast():
+				return self.__forward(p_toks, h_toks)
+		return self.__forward(p_toks, h_toks)
 
 
 	def begin_pass(self, shared):
@@ -187,7 +205,12 @@ class TransformerForNLI(PreTrainedModel):
 
 
 # So that we can just call AutoModel.from_pretrained once TransformerForNLI is imported
-modeling_auto.MODEL_MAPPING[TransformerForNLIConfig] = TransformerForNLI
-configuration_auto.MODEL_NAMES_MAPPING['transformerfornli'] = 'TransformerForNLI'
-configuration_auto.CONFIG_MAPPING['transformerfornli'] = TransformerForNLIConfig
+if version.parse(transformers.__version__) < version.parse('4.0'):
+	transformers.modeling_auto.MODEL_MAPPING[TransformerForNLIConfig] = TransformerForNLI
+	transformers.configuration_auto.MODEL_NAMES_MAPPING['transformerfornli'] = 'TransformerForNLI'
+	transformers.configuration_auto.CONFIG_MAPPING['transformerfornli'] = TransformerForNLIConfig
+else:
+	transformers.models.auto.modeling_auto.MODEL_MAPPING[TransformerForNLIConfig] = TransformerForNLI
+	transformers.models.auto.configuration_auto.MODEL_NAMES_MAPPING['transformerfornli'] = 'TransformerForNLI'
+	transformers.models.auto.configuration_auto.CONFIG_MAPPING['transformerfornli'] = TransformerForNLIConfig
 

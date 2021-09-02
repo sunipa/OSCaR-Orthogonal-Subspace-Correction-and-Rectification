@@ -63,18 +63,17 @@ def run(opt, m, tokenizer, seq, predicates=[]):
 	return log
 
 
-def fix_opt(opt):
-	# if opt is loaded as argparse.Namespace from json, it would lose track of data type, enforce types here
-	opt.label_map_inv = {int(k): v for k, v in opt.label_map_inv.items()}
-	opt.num_label = len(opt.labels)
-	opt.dropout = 0
-	return opt
-
-
 def init(opt):
+	def _fix_opt(opt):
+		# if opt is loaded as argparse.Namespace from json, it would lose track of data type, enforce types here
+		opt.label_map_inv = {int(k): v for k, v in opt.label_map_inv.items()}
+		opt.num_label = len(opt.labels)
+		opt.dropout = 0
+		return opt
+
 	m = AutoModel.from_pretrained(opt.load_file, global_opt=opt)
 	tokenizer = AutoTokenizer.from_pretrained(opt.transformer_type, add_special_tokens=False)
-	opt = fix_opt(m.config)
+	opt = _fix_opt(m.config)
 
 	if opt.gpuid != -1:
 		m.distribute()

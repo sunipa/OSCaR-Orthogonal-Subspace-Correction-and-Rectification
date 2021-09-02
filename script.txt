@@ -1,9 +1,67 @@
-rsync -P -r ./* tli@shell:~/redfish/transformer_for_nli
+
+
+MODEL=./models/robertabase_snli_proj_seed${SEED}_frzemb3_
+for SEED in 1; do
+for DATA in entail contradict; do
+    python3 -u predict.py --gpuid 0 --dir ./data/nli_bias/ --data ${DATA}.hdf5 --res ${DATA}.x_pair.txt,${DATA}.sent1.txt,${DATA}.sent2.txt --ref_log unlabeled \
+        --load_file $MODEL --pred_output $MODEL
+done
+done
+
+
+for SEED in 1 2 3; do
+python3 -u train.py --gpuid 1 --seed $SEED \
+    --freeze_emb 1 --enc proj_transformer \
+    --save_file ./models/robertabase_snli_proj_seed${SEED}_frzemb3_ | tee ./models/robertabase_snli_proj_seed${SEED}_frzemb3_.txt
+done
+
+SEED=1
+DATA=val
+python3 -u predict.py --gpuid 0 --dir ./data/snli_1.0/ --data snli.${DATA}.hdf5 \
+    --ref_enc transformer \
+    --load_file ./models/robertabase_snli_seed${SEED}_iter_dyn
+
+
+for SEED in 4 5; do
+python3 -u train.py --gpuid 0 --seed $SEED \
+    --freeze_emb 1 --emb_overwrite ../nli_bias/roberta_emb_hd.txt \
+    --save_file ./models/robertabase_snli_seed${SEED}_hd_frzemb3 | tee ./models/robertabase_snli_seed${SEED}_hd_frzemb3.txt
+done
+
+
+
+python3 -u -m preprocess.dump_emb --output data/nli_bias/roberta_emb.txt
+
+python debiaswe/learn_gender_specific_roberta.py ../nli_bias/data/nli_bias/roberta_emb.txt 50265 ./data/gender_specific_seed.json ./data/gender_specific_full.json
+
+python debiaswe/debias_roberta.py ../nli_bias/data/nli_bias/roberta_emb.txt ./data/definitional_pairs.json ./data/gender_specific_full.json ./data/equalize_pairs.json ../nli_bias/data/nli_bias/roberta_emb_hd.txt
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 python3 -u -m preprocess.preprocess
 
-SEED=1
-python3 -u train.py --gpuid 1 --seed $SEED --save_file ./models/robertabase_snli_seed${SEED} | tee ./models/robertabase_snli_seed${SEED}.txt
+SEED=3
+python3 -u train.py --gpuid 1 --seed $SEED --save_file ./models/robertabase_snli_seed${SEED}_default | tee ./models/robertabase_snli_seed${SEED}_default.txt
 
 python3 -u train.py --gpuid 0 --freeze_transformer 1 --learning_rate 0.001 --warmup no_warmup --epoch 10 --save_file ./models/robertabase_snli_freezet_10 | tee ./models/robertabase_snli_freezet_10.txt
 
@@ -11,29 +69,28 @@ python3 -u demo.py --gpuid 0 --load_file tli8hf/robertabase_snli
 
 python3 -u predict.py --gpuid 0 --load_file ./models/robertabase_snli_seed1
 
-for SEED in 1; do
-for DATA in entail; do
-    python3 -u predict.py --gpuid 1 --dir ./data/oscar/ --data ${DATA}.hdf5 --res ${DATA}.x_pair.txt,${DATA}.sent1.txt,${DATA}.sent2.txt --ref_log unlabeled_pred \
-        --load_file ./models/robertabase_snli_seed${SEED} --pred_output ./models/${DATA}.robertabase_snli_seed${SEED}
+for SEED in 5; do
+for DATA in entail contradict gender_occupation; do
+    python3 -u predict.py --gpuid 1 --dir ./data/nli_bias/ --data ${DATA}.hdf5 --res ${DATA}.x_pair.txt,${DATA}.sent1.txt,${DATA}.sent2.txt --ref_log unlabeled \
+        --ref_emb_overwrite "" \
+        --load_file ./models/robertabase_snli_seed${SEED}_iter_frzemb3 --pred_output ./models/${DATA}.robertabase_snli_seed${SEED}_iter_frzemb3
 done
 done
 
 
 ############################ OSCaR
 
-rsync -P -r ./* tli@shell:~/redfish/transformer_for_nli
-
 python3 -m preprocess.get_rotation_basis --transformer_type roberta-base --wordpieces he,she --output ./data/oscar/robertabase_gender_basis.hdf5
 python3 -m preprocess.get_rotation_basis --transformer_type roberta-base \
     --wordpieces scientist,doctor,nurse,secretary,cleaner,maid,dancer,advocate,player,banker \
     --output ./data/oscar/robertabase_occupation_basis.hdf5
 
-for DATA in entail contradict gender_occupation; do
-    python3 -u -m preprocess.preprocess_oscar --data $DATA.txt --output $DATA
-done
+python3 -u -m preprocess.preprocess_bias --data entail_templates.txt --gold_label entailment --output entail
+python3 -u -m preprocess.preprocess_bias --data contradict_templates.txt --gold_label contradiction --output contradict
+python3 -u -m preprocess.preprocess_bias --data gender_occupation_templates.txt --gold_label neutral --output gender_occupation
 
 
-for SEED in 2 3; do
+for SEED in 3; do
 python3 -u train.py --gpuid 1 --enc oscar_transformer \
     --bias_update_every 100 \
     --seed $SEED \
@@ -45,8 +102,8 @@ for SEED in 1 2 3; do
     python3 -u predict.py --gpuid 1 --load_file ./models/robertabase_snli_oscar_seed${SEED} | tee ./models/${DATA}.robertabase_snli_oscar_seed${SEED}.test.txt
 done
 
-for SEED in 1; do
-for DATA in entail contradict; do
+for SEED in 1 2 3; do
+for DATA in entail contradict gender_occupation; do
     python3 -u predict.py --gpuid 1 --dir ./data/oscar/ --data ${DATA}.hdf5 --res ${DATA}.x_pair.txt,${DATA}.sent1.txt,${DATA}.sent2.txt --ref_log unlabeled_pred \
         --load_file ./models/robertabase_snli_oscar_dyn_seed${SEED} --pred_output ./models/${DATA}.robertabase_snli_oscar_dyn_seed${SEED}
 done
@@ -87,10 +144,10 @@ done
 
 python3 -m preprocess.get_projection_basis --transformer_type roberta-base --wordpiece1 he --wordpiece2 she --output ./data/oscar/robertabase_gender_proj.hdf5
 
-for SEED in 2 3; do
-python3 -u train.py --gpuid 1 --enc proj_transformer \
+for SEED in 1 2 3; do
+python3 -u train.py --gpuid 0 --enc proj_transformer \
     --seed $SEED \
-    --save_file ./models/robertabase_snli_proj_seed${SEED} | tee ./models/robertabase_snli_proj_seed${SEED}.txt
+    --save_file ./models/robertabase_snli_proj_seed${SEED}_ | tee ./models/robertabase_snli_proj_seed${SEED}_.txt
 done
 
 for SEED in 1; do

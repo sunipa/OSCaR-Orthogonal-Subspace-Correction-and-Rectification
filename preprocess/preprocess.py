@@ -1,12 +1,8 @@
 import sys
-import os
 import argparse
 import numpy as np
 import h5py
-import itertools
 from collections import defaultdict
-import json
-import torch
 from torch import cuda
 from transformers import *
 from util.util import *
@@ -226,7 +222,7 @@ def extract(csv_file):
 
 
 def process(opt):
-	tokenizer_output = opt.tokenizer_output+'.' if opt.tokenizer_output != opt.dir else ''
+	tokenizer_output = opt.output+'.' if opt.output != opt.dir else ''
 
 	label_indexer = Indexer(symbols=["entailment", "neutral", "contradiction"], num_oov=0)
 
@@ -273,7 +269,6 @@ def main(arguments):
 
 	parser.add_argument('--batch_size', help="Maximal size of each minibatch, actual batches will be likely smaller than this.", type=int, default=36)
 	parser.add_argument('--max_seq_l', help="Maximum sequence length. Sequences longer than this are dropped.", type=int, default=400)
-	parser.add_argument('--tokenizer_output', help="Prefix of the tokenized output file names. ", type=str, default = "snli")
 	parser.add_argument('--output', help="Prefix of the output file names. ", type=str, default = "snli")
 	parser.add_argument('--shuffle', help="If = 1, shuffle sentences before sorting (based on source length).", type = int, default = 1)
 	parser.add_argument('--seed', help="The random seed", type = int, default = 1)
@@ -283,7 +278,6 @@ def main(arguments):
 	opt.val = opt.dir + opt.val
 	opt.test = opt.dir + opt.test
 	opt.output = opt.dir + opt.output
-	opt.tokenizer_output = opt.dir + opt.tokenizer_output
 
 	process(opt)
 

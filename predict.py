@@ -28,9 +28,7 @@ parser.add_argument('--pred_output', help="Path to the prediction dump location"
 parser.add_argument('--ref_enc', help="Reference encoder type", default="")
 parser.add_argument('--ref_cls', help="Reference classifier type", default="")
 parser.add_argument('--ref_log', help="Reference log type", default='')
-parser.add_argument('--ref_bias_v1', help="Path to the bias direction1 hdf5", default="")
-parser.add_argument('--ref_bias_v2', help="Path to the bias direction2 hdf5", default="")
-parser.add_argument('--ref_bias_proj', help="Path to the bias projection hdf5", default="")
+parser.add_argument('--ref_emb_overwrite', help="Reference embeddings to overwrite from", default='')
 
 
 def fix_opt(opt):
@@ -40,17 +38,17 @@ def fix_opt(opt):
 		opt.cls = opt.ref_cls
 	if opt.ref_log != '':
 		opt.log = opt.ref_log
-	if opt.ref_bias_v1 != '':
-		opt.bias_v1 = opt.ref_bias_v1
-	if opt.ref_bias_v2 != '':
-		opt.bias_v2 = opt.ref_bias_v2
-	if opt.ref_bias_proj != '':
-		opt.bias_proj = opt.ref_bias_proj
+
+	if opt.ref_emb_overwrite != '':
+		opt.emb_overwrite = opt.dir + opt.ref_emb_overwrite
+	else:
+		opt.emb_overwrite = opt.dir
 	return opt
 
 
 def evaluate(opt, shared, m, data):
 	m.train(False)
+	shared.is_train = False
 
 	num_ex = 0
 
@@ -86,6 +84,7 @@ def evaluate(opt, shared, m, data):
 	perf, extra_perf = loss.get_epoch_metric()
 	loss.end_pass()
 	m.end_pass()
+
 	print('finished evaluation on {0} examples'.format(num_ex))
 
 	return (perf, extra_perf)

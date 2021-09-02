@@ -15,6 +15,7 @@ from util.data import *
 from modules.multiclass_loss import *
 from modules.optimizer import *
 from modules.transformer_for_nli import *
+from log.unlabeled_log import *
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
@@ -31,7 +32,7 @@ parser.add_argument('--val_res', help="Path to validation resource files, sepera
 parser.add_argument('--dropout', help="The dropout probability", type=float, default=0.1)
 parser.add_argument('--percent', help="The percent of training data to use", type=float, default=1.0)
 parser.add_argument('--epochs', help="The number of epoches for training", type=int, default=5)
-parser.add_argument('--optim', help="The name of optimizer to use for training", default='adamw_fp16')
+parser.add_argument('--optim', help="The name of optimizer to use for training", default='adamw_apex')
 parser.add_argument('--learning_rate', help="The learning rate for training", type=float, default=0.00003)
 parser.add_argument('--clip', help="The norm2 threshold to clip, set it to negative to disable", type=float, default=1.0)
 parser.add_argument('--adam_betas', help="The betas used in adam", default='0.9,0.999')
@@ -52,11 +53,9 @@ parser.add_argument('--seed', help="The random seed", type=int, default=3435)
 parser.add_argument('--gpuid', help="The GPU index, if -1 then use CPU", type=int, default=-1)
 parser.add_argument('--acc_batch_size', help="The accumulative batch size, -1 to disable", type=int, default=-1)
 # adhoc options
-parser.add_argument('--freeze_transformer', help="Whether to freeze transformer and only update classifier", type=int, default=0)
+parser.add_argument('--freeze_emb', help="Whether to freeze transformer and only update classifier", type=int, default=0)
+parser.add_argument('--emb_overwrite', help="Path to emb txt file which will be loaded and overwrite the transformer word_embeddings", default="")
 # oscar related options
-parser.add_argument('--bias_v1', help="Path to the bias direction1 hdf5", default="")
-parser.add_argument('--bias_v2', help="Path to the bias direction2 hdf5", default="")
-parser.add_argument('--bias_proj', help="Path to the bias projection hdf5", default="")
 parser.add_argument('--bias_update_every', help="Number of gradient updates every bias update happens between, -1: static (update only once", type=int, default=-1)
 
 
@@ -74,6 +73,8 @@ def complete_opt(opt):
 		opt.train_res = '' if opt.train_res == ''  else ','.join([opt.dir + path for path in opt.train_res.split(',')])
 	if hasattr(opt, 'val_res'):
 		opt.val_res = '' if opt.val_res == ''  else ','.join([opt.dir + path for path in opt.val_res.split(',')])
+	if hasattr(opt, 'emb_overwrite'):
+		opt.emb_overwrite = opt.dir + opt.emb_overwrite
 
 	if hasattr(opt, 'label_dict'):
 		opt.label_dict = opt.dir + opt.label_dict
@@ -99,6 +100,7 @@ def train_epoch(opt, shared, m, optim, data, sub_idx):
 	num_batch = 0
 	acc_batch_size = 0
 	start_time = time.time()
+	shared.is_train = True
 
 	# subsamples of data
 	# if subsample indices provided, permutate from subsamples
@@ -141,6 +143,9 @@ def train_epoch(opt, shared, m, optim, data, sub_idx):
 		# accumulate grads
 		#optim.backward(m, batch_loss/shared.batch_l)
 		optim.backward(m, batch_loss)	# this performs better somehow
+
+		if shared.num_update == 0:
+			grad_sanity_check(optim, m)
 
 		# accumulate current batch until the rolled up batch size exceeds threshold or meet certain boundary
 		if i == data_size-1 or acc_batch_size >= opt.acc_batch_size or (i+1) % opt.print_every == 0:
