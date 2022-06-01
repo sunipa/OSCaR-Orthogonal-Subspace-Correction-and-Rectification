@@ -77,7 +77,7 @@ U = gsConstrained(U,v1,basis(np.vstack((v1,v2))))
 def rotation(v1,v2,x):
 	v1 = np.asarray(v1).reshape(-1); v2 = np.asarray(v2).reshape(-1); x = np.asarray(x).reshape(-1)
 	v2P = basis(np.vstack((v1,v2))); xP = x[2:len(x)]
-	x = (np.dot(x,v1),np.dot(x,v2P)) 
+	#x = (np.dot(x,v1),np.dot(x,v2P)) 
 	v2 = (np.matmul(v2,v1.T),np.sqrt( 1 - (np.matmul(v2,v1.T)**2))); v1 = (1,0)
 	thetaX = 0.0
 	theta = np.abs(np.arccos(np.dot(v1,v2)))
